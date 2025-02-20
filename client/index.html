@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Pictionary</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+  <h1>Pictionary</h1>
+
+  <div class="container">
+    <div style="position: relative">
+      <canvas id="drawingBoard" width="700" height="500"></canvas>
+      <form method="post" class="join-game" id="create-join-game">
+        <div class="input-group">
+          <input type="text" name="name" placeholder="Name" required />
+          <input type="text" name="clientId" placeholder="Client ID" id="clientId" disabled />
+          <input type="text" name="roomId" placeholder="Room ID" required />
+        </div>
+        <div class="button-group">
+          <button type="submit" class="create-button" id="create">
+            Create Game
+          </button>
+          <button type="submit" class="join-button" id="join">
+            Join Game
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div id="controller" class="controller">
+      <div class="player-info">
+        List of players
+        <ul id="visitors"></ul>
+        <!-- Conditional Rendering -->
+        <button style="opacity: 0" id="startGame">Start Game</button>
+      </div>
+
+      <div class="status-info" id="play">
+        <!-- <form id="quizForm">
+          <div class="question">
+            <p>Guess the word</p>
+            <label>
+              <input type="radio" name="question1" value="A" />
+              A. Berlin
+            </label>
+            <label>
+              <input type="radio" name="question1" value="B" />
+              B. Madrid
+            </label>
+            <label>
+              <input type="radio" name="question1" value="C" />
+              C. Paris
+            </label>
+          </div>
+          <button type="submit">Submit</button>
+        </form> -->
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getRandomColor, getClientId } from "./utilities.js";
+
+    let drawing = false;
+    let gameHasStarted = false;
+    let timeLeft = 30;
+    let clientId = getClientId();
+
+    document.getElementById("clientId").value = clientId;
+
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://localhost:8080`);
+
+    const canvas = document.getElementById("drawingBoard");
+    const form = document.getElementById("create-join-game");
+    const visitors = document.getElementById("visitors");
+    const startGame = document.getElementById("startGame");
+    const countdownElement = document.getElementById("countdown");
+    const playSection = document.getElementById("play");
+
+    const ctx = canvas.getContext("2d");
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const submitType = event.submitter.id;
+
+      const name = formData.get("name");
+      const roomId = formData.get("roomId");
+
+      const payload = {
+        type: submitType === "create" ? "CREATE_GAME" : "JOIN_GAME",
+        payload: {
+          name,
+          roomId,
+          clientId,
+          color: getRandomColor(),
+        },
+      };
+
+      ws.send(JSON.stringify(payload));
+      form.remove();
+    });
+
+    startGame.addEventListener("click", () => {
+      ws.send(
+        JSON.stringify({
+          type: "GAME_STATUS_UPDATE",
+          payload: {
+            status: "GAME_PLAY",
+          },
+        })
+      );
+    });
+
+    ws.addEventListener("message", (event) => {
+      const data = JSON.parse(event.data);
+
+      console.log("receiveng", data);
+
+      if (data?.type === "DRAWING") {
+        const { x, y } = data?.game?.strokes;
+
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "white";
+
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+      }
+
+      if (data?.type === "CREATE_GAME" || data?.type === "JOIN_GAME") {
+        visitors.innerHTML = data?.game?.clients
+          .map(
+            (client) =>
+              `<li style="color: ${client.color}">
+                ${client.name} 
+                ${client?.clientId === clientId ? "(You)" : ""}
+                ${client?.clientId === data?.game?.player?.drawer?.clientId
+                ? "(Drawer)"
+                : ""
+              }
+               </li>`
+          )
+          .join("");
+
+        if (data?.game?.clients?.length > 1) {
+          startGame.style.opacity = 100;
+        }
+      }
+
+      if (
+        data?.type === "GAME_STATUS_UPDATE" &&
+        data?.game?.status === "GAME_OVER"
+      ) {
+        window.location.reload();
+      }
+
+      if (
+        data?.type === "GAME_STATUS_UPDATE" &&
+        data?.game?.status === "GAME_PLAY"
+      ) {
+        startGame.remove();
+
+        if (clientId === data?.game?.player?.drawer?.clientId) {
+          playSection.innerHTML = `
+            <p style="text-align: center;">
+              The word is <br />
+              <span style="font-weight: 600;">"${data?.game?.guess}"</span>
+            </p>
+          `;
+
+          canvas.addEventListener("mousedown", (e) => {
+            drawing = true;
+            draw(e);
+          });
+
+          canvas.addEventListener("mousemove", draw);
+          canvas.addEventListener("mouseup", () => (drawing = false));
+          canvas.addEventListener("mouseout", () => (drawing = false));
+        } else {
+          playSection.innerHTML = `
+            <form id="quizForm" method="POST">
+              <div class="question">
+                <p>Guess the word</p>
+                ${data?.game?.guessOptions
+              ?.map(
+                (guess, idx) => `
+                  <label>
+                    <input type="radio" name="guess" value="${guess}" />
+                    ${guess}
+                  </label>
+                `
+              )
+              .join("")}
+              </div>
+              <button type="submit">Submit</button>
+            </form>
+          `;
+
+          document
+            .getElementById("quizForm")
+            .addEventListener("submit", (event) => {
+              event.preventDefault();
+              const formData = new FormData(quizForm);
+              const selectedOption = formData.get("guess");
+
+              if (
+                selectedOption.toLowerCase() ===
+                data?.game?.guess?.toLowerCase()
+              ) {
+                alert("You're Correct, Game is now completed");
+                ws.send(
+                  JSON.stringify({
+                    type: "GAME_STATUS_UPDATE",
+                    payload: {
+                      status: "GAME_OVER",
+                    },
+                  })
+                );
+              } else {
+                alert("Wrong answer, try again");
+              }
+
+              console.log("Selected option:", selectedOption);
+            });
+        }
+      }
+    });
+
+    function draw(e) {
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "white";
+
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+
+      // Send drawing data to the server
+      ws.send(JSON.stringify({ type: "DRAWING", payload: { x, y } }));
+    }
+  </script>
+</body>
+
+</html>
