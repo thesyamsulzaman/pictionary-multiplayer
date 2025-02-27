@@ -18,6 +18,13 @@ const getRandomPet = () => {
   return Pets[randomIndex];
 };
 
+const getOtherGuestOptions = (guess) => {
+  return [guess, getRandomPet(), getRandomPet()]
+    .map((value) => ({ value, sort: Math.random() }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(({ value }) => value);
+}
+
 const getRandomColor = () => {
   let color = "#";
   const letters = "0123456789ABCDEF";
@@ -28,4 +35,12 @@ const getRandomColor = () => {
 }
 
 
-module.exports = { getRandomPet, getRandomColor }
+const getClientId = () => {
+  function S4() {
+    return (((1 + Math.random()) * 0x10000) | 0).toString(16).substring(1);
+  }
+
+  return (S4() + S4() + "-" + S4() + "-4" + S4().substr(0, 3) + "-" + S4() + "-" + S4() + S4() + S4()).toLowerCase()
+}
+
+module.exports = { getRandomPet, getRandomColor, getClientId, getOtherGuestOptions }
