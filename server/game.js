@@ -1,4 +1,4 @@
-const { getRandomPet } = require("./utilities");
+const { getRandomPet, getOtherGuestOptions } = require("./utilities");
 
 class Game {
   constructor(roomId) {
@@ -7,11 +7,7 @@ class Game {
     this.roomId = roomId;
     this.status = "GAME_LOBBY"; // GAME_LOBBY, GAME_PLAY, GAME_END
     this.guess = guess;
-    this.guessOptions = [guess, getRandomPet(), getRandomPet()]
-      .map((value) => ({ value, sort: Math.random() }))
-      .sort((a, b) => a.sort - b.sort)
-      .map(({ value }) => value);
-
+    this.guessOptions = getOtherGuestOptions(guess)
     this.strokes = {};
     this.player = {
       drawer: null,
